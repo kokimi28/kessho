@@ -1,0 +1,78 @@
+<div id="app">
+  <section id="view-crystal" class="view">
+    <canvas id="cv" aria-label="結晶 — AIの夜業の環状線。駅をタップすると中に入れる。下端のスライダで歴史を巻き戻す"></canvas>
+    <div class="brand">結晶</div>
+    <div id="dive-pin" hidden>
+      <i id="pin-dot"></i>
+      <b id="pin-name"></b>
+      <span id="pin-line"></span>
+      <span id="pin-badge" hidden></span>
+      <button id="pin-exit" aria-label="この駅から退出">× 退出</button>
+    </div>
+    <div id="dive" aria-hidden="true">
+      <div class="dive-head"><b id="dive-title"></b><span id="dive-meta"></span></div>
+      <div id="dive-stats" class="dive-tiles"></div>
+      <div id="dive-viz"></div>
+      <ol id="dive-list"></ol>
+    </div>
+  </section>
+
+  <section id="view-nights" class="view scroll" hidden>
+    <header class="vh">
+      <h1>夜報</h1>
+      <p>夜ごとの仕事の記録。「着弾を再生」でその夜が結晶に降る様子を見られる。</p>
+    </header>
+    <ol id="night-list"></ol>
+  </section>
+
+  <section id="view-record" class="view scroll" hidden>
+    <header class="vh">
+      <h1>観測記録</h1>
+      <p>この端末に残る、あなたの観測の記録。記録が消えても結晶は無傷。</p>
+    </header>
+    <div id="record-tiles" class="tiles"></div>
+    <button id="btn-catchup" class="btn wide" hidden></button>
+    <p class="note">記録はこの端末のブラウザにのみ保存されます。サーバには何も送っていません。</p>
+  </section>
+
+  <nav id="tabbar" aria-label="画面切替">
+    <button data-view="crystal" aria-pressed="true">結晶</button>
+    <button data-view="nights" aria-pressed="false">夜報</button>
+    <button data-view="record" aria-pressed="false">記録</button>
+  </nav>
+
+  <button id="btn-drawer" aria-label="操作パネルを開く">⚙</button>
+  <div id="drawer" hidden>
+    <div class="drawer-row">
+      <div class="seg" role="group" aria-label="彩色の切替">
+        <button id="mode-type" aria-pressed="true">仕事の種別</button>
+        <button id="mode-line" aria-pressed="false">事業ライン</button>
+      </div>
+    </div>
+    <div class="drawer-row"><div id="legend" class="legend"></div></div>
+    <div class="drawer-row">
+      <button class="btn" id="play-night"></button>
+      <button class="btn" id="play-week"></button>
+      <button class="btn" id="play-all">創世（106日）▶</button>
+    </div>
+    <div class="drawer-row"><button class="btn" id="btn-about">この観測所について</button></div>
+  </div>
+
+  <div id="opening"><div id="opening-lines"></div></div>
+
+  <div id="about" hidden>
+    <h1>結晶</h1>
+    <div class="sub">— 夜業の観測所</div>
+    <p>ここにあるのは、AI が毎晩書いているコードの記録そのものです。人間は書いていません。</p>
+    <ul>
+      <li><b>1 粒 = 1 コミット。</b>粒の半径は変更行数の log₂ に比例し、誇張はどこにもない</li>
+      <li><b>粒は着いた夜がいちばん明るく</b>、七日かけて冷え、歴史は暗い硝子になる</li>
+      <li>枝の方位は事業の系統。形は設計ではなく、履歴の順序から創発したもの</li>
+      <li>結晶は決定論で育つ——明日の粒は、必ず今日の形の続きに着く</li>
+    </ul>
+    <p>操作: ドラッグで回す／ピンチで寄る／下端のスライダで時間を巻き戻す。</p>
+    <p><b>これはステーション</b>——中央ハブから放射するトラスに、モジュール（=プロダクト）がドッキングしている。モジュールの長さは歴史の量、船体に並ぶ窓明かりはコミット（時系列順・新しい窓ほど熱く光る）。<b>モジュールのどこを押してもドアから中へ潜れる</b>（潜るほどカメラが倒れ、奥行きの中へ）。中には数字の陳列（最新の夜・7日・通算・律動）と全仕事の一覧。<b>琥珀色に脈動するドアは昨夜更新のあったモジュール</b>。ダブルタップで一段引く。上部のパンくずが現在地。窓を正確に押すと検分・共鳴。</p>
+    <p><b>粒をタップすると共鳴</b>——枝を伝って光の連鎖が走り、そのコミットの素性が出る。<b>光る枠の粒は昨夜の新粒</b>。すべてタップして検分すると、その夜の検分完了が観測記録に刻まれる。</p>
+    <button class="btn" id="about-close">閉じる</button>
+  </div>
+</div>

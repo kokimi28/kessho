@@ -1,0 +1,91 @@
+# 夜間データ更新: 毎晩 JST 23:45 に 13 リポの git 履歴を採取し、
+# data/stream.json と dist/ を更新して main にコミット → Pages を再配信する。
+#
+# 必要 secret: KESSHO_READ_TOKEN（対象 13 リポの read 権限を持つ PAT）。
+# 未設定の間はデータ採取をスキップして正常終了する（既存データのまま）。
+name: nightly
+
+on:
+  schedule:
+    - cron: "45 14 * * *" # 23:45 JST
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    env:
+      GH_TOKEN: ${{ secrets.KESSHO_READ_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: check token
+        id: token
+        run: |
+          if [ -n "$GH_TOKEN" ]; then
+            echo "have=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "have=false" >> "$GITHUB_OUTPUT"
+            echo "KESSHO_READ_TOKEN 未設定のためデータ採取をスキップ（再ビルドのみ）"
+          fi
+
+      - name: clone source repos
+        if: steps.token.outputs.have == 'true'
+        run: |
+          mkdir -p "$RUNNER_TEMP/repos"
+          for full in \
+            kokimi28/dev-env kokimi28/claude-ops kokimi28/ops-cockpit \
+            kokimi28/template-nextjs kokimi28/template-python \
+            kokimi28/tedori-calc kokimi28/retirement-tax-sim kokimi28/ideco-tax-sim \
+            brypoai/brypo brypoai/brypo-landing \
+            kokimi28/hojokin-antenna kokimi28/reg-monitor kokimi28/distributed-ai-idol; do
+            name="${full#*/}"
+            gh repo clone "$full" "$RUNNER_TEMP/repos/$name" -- --quiet \
+              || echo "skip: $full（アクセス不可）"
+          done
+
+      - name: extract stream
+        if: steps.token.outputs.have == 'true'
+        run: node scripts/extract-stream.mjs "$RUNNER_TEMP/repos"
+
+      - name: test
+        run: node scripts/test.mjs
+
+      - name: build
+        run: node scripts/build.mjs
+
+      - name: commit updated data
+        if: steps.token.outputs.have == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/stream.json dist/
+          if git diff --cached --quiet; then
+            echo "変化なし（コミットしない）"
+          else
+            git commit -m "data: nightly stream update"
+            git push origin main
+          fi
+
+      - uses: actions/configure-pages@v5
+        with:
+          enablement: true
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+      - id: deployment
+        uses: actions/deploy-pages@v4
