@@ -24,8 +24,8 @@ Node >= 22 のみ（依存パッケージゼロ）。
 
 | workflow | 役割 |
 |---|---|
-| `deploy.yml` | main への push → test → build → GitHub Pages 配信（初回実行で Pages を自動有効化） |
-| `nightly.yml` | 毎晩 JST 23:45 に 13 リポの git 履歴を採取 → `data/stream.json` と `dist/` を更新コミット → 再配信 |
+| `deploy.yml` | main への push → test → build → `gh-pages` ブランチへ配信（Pages ソースは gh-pages / root） |
+| `nightly.yml` | 毎晩 JST 23:45 に 13 リポの git 履歴を採取 → `data/stream.json` と `dist/` を main に更新コミット → gh-pages へ再配信 |
 
 - `nightly.yml` は secret **`KESSHO_READ_TOKEN`**（対象 13 リポ read 権限の PAT）が必要。
   未設定の間はデータ採取をスキップして正常終了する（表示は既存データのまま）。

@@ -1,8 +1,8 @@
 # 夜間データ更新: 毎晩 JST 23:45 に 13 リポの git 履歴を採取し、
-# data/stream.json と dist/ を更新して main にコミット → Pages を再配信する。
+# data/stream.json と dist/ を main に更新コミット → gh-pages へ再配信する。
 #
 # 必要 secret: KESSHO_READ_TOKEN（対象 13 リポの read 権限を持つ PAT）。
-# 未設定の間はデータ採取をスキップして正常終了する（既存データのまま）。
+# 未設定の間はデータ採取をスキップして正常終了する（既存データのまま再配信のみ）。
 name: nightly
 
 on:
@@ -12,8 +12,6 @@ on:
 
 permissions:
   contents: write
-  pages: write
-  id-token: write
 
 concurrency:
   group: pages
@@ -22,9 +20,6 @@ concurrency:
 jobs:
   update:
     runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
     env:
       GH_TOKEN: ${{ secrets.KESSHO_READ_TOKEN }}
     steps:
@@ -68,7 +63,7 @@ jobs:
       - name: build
         run: node scripts/build.mjs
 
-      - name: commit updated data
+      - name: commit updated data to main
         if: steps.token.outputs.have == 'true'
         run: |
           git config user.name "github-actions[bot]"
@@ -81,11 +76,19 @@ jobs:
             git push origin main
           fi
 
-      - uses: actions/configure-pages@v5
-        with:
-          enablement: true
-      - uses: actions/upload-pages-artifact@v3
-        with:
-          path: dist
-      - id: deployment
-        uses: actions/deploy-pages@v4
+      - name: publish to gh-pages
+        run: |
+          cp dist/index.html "$RUNNER_TEMP/index.html"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin gh-pages
+          git checkout gh-pages
+          cp "$RUNNER_TEMP/index.html" index.html
+          touch .nojekyll
+          git add index.html .nojekyll
+          if git diff --cached --quiet; then
+            echo "変化なし（配信済みと同一）"
+          else
+            git commit -m "deploy: nightly site update"
+            git push origin gh-pages
+          fi
