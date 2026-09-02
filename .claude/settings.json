@@ -4,6 +4,8 @@
     "allow": [
       "Bash(node scripts/test.mjs)",
       "Bash(node scripts/build.mjs)",
+      "Bash(node scripts/publish-night.mjs)",
+      "Bash(node scripts/publish-night.mjs *)",
       "Bash(node scripts/extract-stream.mjs *)",
       "Bash(node scripts/verify-ui-remote.mjs *)",
       "Bash(git status)",

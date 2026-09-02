@@ -26,6 +26,9 @@ jobs:
       - name: test
         run: node scripts/test.mjs
       - name: build
+        env:
+          # 計測ビーコン（docs/DESIGN.md §14）。HTML に出る公開値なので Variables。未設定なら注入しない
+          GOATCOUNTER_CODE: ${{ vars.GOATCOUNTER_CODE }}
         run: node scripts/build.mjs
       - name: publish to gh-pages
         run: |

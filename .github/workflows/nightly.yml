@@ -1,14 +1,32 @@
 # 夜間データ更新: 毎晩 JST 23:45 に 13 リポの git 履歴を採取し、
-# data/stream.json と dist/ を main に更新コミット → gh-pages へ再配信する。
+# data/stream.json と dist/ を main に更新コミット → 夜報を X へ放送 → gh-pages へ再配信する。
 #
-# 必要 secret: KESSHO_READ_TOKEN（対象 13 リポの read 権限を持つ PAT）。
+# 必要 secret: KESSHO_READ_TOKEN（対象 13 リポの read 権限を持つ PAT。使うステップにだけ渡す）。
 # 未設定の間はデータ採取をスキップして正常終了する（既存データのまま再配信のみ）。
+#
+# 計測: Variables `GOATCOUNTER_CODE`（HTML に出る公開値・secret ではない）が設定されていれば
+# build がビーコンを注入する（docs/DESIGN.md §14）。未設定なら注入しない。
+#
+# 放送（X 自動投稿・docs/DESIGN.md §15）: scripts/publish-night.mjs。既定は dry-run（本文をログに出すだけ）。
+# 本番送信は main 上で (a) workflow_dispatch の入力 live=true、または (b) schedule 実行かつ Variables PUBLISH_ENABLED=true
+# （brypo-landing と同名のキルスイッチ。無いと毎晩の本番投稿に到達できないため置いた）のときのみ。
+# 必要 secret（brypo-landing と同名）: X_API_KEY / X_API_SECRET / X_ACCESS_TOKEN / X_ACCESS_TOKEN_SECRET。
+# 投稿失敗はデータ更新・配信を止めない。冪等性の記録 data/last-post.json は live main の先端に載せて push する。
 name: nightly
 
 on:
   schedule:
-    - cron: "45 14 * * *" # 23:45 JST
+    - cron: "45 14 * * *" # 23:45 JST（遅延して 00:00 JST を越えても「同じ夜」として扱う: 境界は JST 06:00）
   workflow_dispatch:
+    inputs:
+      live:
+        description: "X へ本番送信する（true のときだけ送信。未指定・false は dry-run。main でのみ有効）"
+        type: boolean
+        default: false
+      verify:
+        description: "X 鍵の検証のみ（署名付き GET /2/users/me・投稿しない・データ更新は通常どおり）"
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -20,8 +38,6 @@ concurrency:
 jobs:
   update:
     runs-on: ubuntu-latest
-    env:
-      GH_TOKEN: ${{ secrets.KESSHO_READ_TOKEN }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -30,6 +46,8 @@ jobs:
 
       - name: check token
         id: token
+        env:
+          GH_TOKEN: ${{ secrets.KESSHO_READ_TOKEN }}
         run: |
           if [ -n "$GH_TOKEN" ]; then
             echo "have=true" >> "$GITHUB_OUTPUT"
@@ -40,6 +58,8 @@ jobs:
 
       - name: clone source repos
         if: steps.token.outputs.have == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.KESSHO_READ_TOKEN }}
         run: |
           mkdir -p "$RUNNER_TEMP/repos"
           for full in \
@@ -61,6 +81,8 @@ jobs:
         run: node scripts/test.mjs
 
       - name: build
+        env:
+          GOATCOUNTER_CODE: ${{ vars.GOATCOUNTER_CODE }}
         run: node scripts/build.mjs
 
       - name: commit updated data to main
@@ -75,6 +97,71 @@ jobs:
             git commit -m "data: nightly stream update"
             git push origin main
           fi
+
+      # 放送: データコミットの後段。既定 dry-run。失敗しても配信は止めない。
+      # 冪等性の判定は live main の最新マーカーで行う（このジョブの checkout SHA は起動時に固定されるため、
+      # 同じ夜に先行した run の投稿記録が checkout に無いことがある）。作業ツリーは汚さない（一時ファイル経由）。
+      - name: night post (X)
+        id: post
+        continue-on-error: true
+        env:
+          PUBLISH_DRY_RUN: ${{ (github.ref == 'refs/heads/main' && (inputs.live == true || (github.event_name == 'schedule' && vars.PUBLISH_ENABLED == 'true'))) && 'false' || 'true' }}
+          PUBLISH_VERIFY: ${{ inputs.verify == true && 'true' || 'false' }}
+          LIVE_REQUESTED: ${{ inputs.live == true && 'true' || 'false' }}
+          KESSHO_MARKER_PATH: ${{ runner.temp }}/last-post.json
+          X_API_KEY: ${{ secrets.X_API_KEY }}
+          X_API_SECRET: ${{ secrets.X_API_SECRET }}
+          X_ACCESS_TOKEN: ${{ secrets.X_ACCESS_TOKEN }}
+          X_ACCESS_TOKEN_SECRET: ${{ secrets.X_ACCESS_TOKEN_SECRET }}
+        run: |
+          echo "mode: dry_run=${PUBLISH_DRY_RUN} verify=${PUBLISH_VERIFY} event=${{ github.event_name }} ref=${{ github.ref }}"
+          if [ "$LIVE_REQUESTED" = "true" ] && [ "${{ github.ref }}" != "refs/heads/main" ]; then
+            echo "live=true は main でのみ有効 → dry-run で実行"
+          fi
+          git fetch --quiet origin main
+          if git cat-file -e origin/main:data/last-post.json 2>/dev/null; then
+            git show origin/main:data/last-post.json > "$KESSHO_MARKER_PATH"
+          fi
+          if [ "$PUBLISH_VERIFY" = "true" ]; then
+            node scripts/publish-night.mjs --verify
+          else
+            node scripts/publish-night.mjs
+          fi
+
+      # 冪等性の記録: 本番送信に成功した夜だけマーカーが更新される（dry-run では変化なし）。
+      # 起動時に固定された checkout SHA ではなく live main の先端に載せて push する（先行 push があっても取りこぼさない）。
+      - name: commit post marker to main
+        if: steps.post.outcome == 'success' && github.ref == 'refs/heads/main'
+        continue-on-error: true
+        env:
+          KESSHO_MARKER_PATH: ${{ runner.temp }}/last-post.json
+        run: |
+          [ -f "$KESSHO_MARKER_PATH" ] || { echo "投稿記録なし（dry-run・または未投稿）"; exit 0; }
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch --quiet origin main
+          WT="$RUNNER_TEMP/main-wt"
+          git worktree add --quiet "$WT" origin/main
+          cp "$KESSHO_MARKER_PATH" "$WT/data/last-post.json"
+          cd "$WT"
+          git add data/last-post.json
+          if git diff --cached --quiet; then
+            echo "投稿記録に変化なし"
+            exit 0
+          fi
+          git commit --quiet -m "data: night post marker"
+          for i in 1 2 3; do
+            if git push origin HEAD:main; then
+              echo "投稿記録を main に push した"
+              exit 0
+            fi
+            echo "push 失敗（$i/3）: main の先端を取り直して再試行"
+            git fetch --quiet origin main
+            git rebase --quiet origin/main || exit 1
+            sleep 5
+          done
+          echo "::warning::投稿記録（data/last-post.json）の push に失敗。同じ夜に再実行すると 2 本目が出る可能性がある"
+          exit 1
 
       - name: publish to gh-pages
         run: |

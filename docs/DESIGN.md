@@ -19,7 +19,7 @@ kessho/
 ```
 
 - **lib と app の境界**: 乱数・凝集・投影・日次集計・訪問状態・文言生成など「答えが一意に決まる計算」はすべて lib。app は描画とイベントのみ。テストは lib に集中させる（brypo-landing の `scripts/*.mjs` 文化と同型）。
-- ビルドは文字列インライン（`export` を剥がして `<script>` に連結）。実行時依存ゼロ・CDN なし。
+- ビルドは文字列インライン（`export` を剥がして `<script>` に連結）。実行時依存ゼロ・CDN なし（唯一の例外は計測ビーコン・§14）。
 
 ## 2. 視覚系の確定事項（試作第一〜四.五稿の判断記録）
 
@@ -51,7 +51,7 @@ kessho/
 ## 5. データ更新とリリース経路
 
 - **v1.0（本リリース）**: スナップショット埋め込みの静的1ファイル。配布は Artifact URL（即時）→ 👤 が `kessho` リポ生成後、Cloudflare Pages/Vercel の静的ホスティング＋独自ドメイン。
-- **v1.1（夜間自動化・リポ生成後）**: GitHub Actions（毎晩 JST 23:45）が extract → `data/stream.json` 更新 → build → Pages デプロイ → かけら画像＋機械文を X へ（brypo-landing の publish/OAuth1.0a 資産を移植）。人間の作業ゼロ。
+- **v1.1（夜間自動化・リポ生成後）**: GitHub Actions（毎晩 JST 23:45）が extract → `data/stream.json` 更新 → build → Pages デプロイ → かけら画像＋機械文を X へ（brypo-landing の publish/OAuth1.0a 資産を移植）。人間の作業ゼロ。→ v1.9 で放送を実装（§15・v0 はテキストのみ、画像は次回）。
 - **v2（Layer3・別設計）**: 「あなたの結晶」= GitHub OAuth → ユーザー別 stream 抽出 → 同一エンジンで描画。課金線。DB が初めて必要になる（Neon 想定）。本 v1 のエンジンは表示層としてそのまま使う。
 
 ## 6. 検証戦略
@@ -138,3 +138,25 @@ kessho/
 7. **初回の一手案内**: 初訪問のみ「駅をタップすると中に入れる」を一度だけ表示。
 
 見送り（次版候補として記録）: ブラウザ戻るボタンでの退出（pushState 化）／駅名の斜め方向衝突の完全回避／部屋内の窓とリストの双方向ハイライト。
+
+## 14. 計測の例外（v1.9・初動のスコアを機械が記録する）
+
+自己完結規約（§1「実行時依存ゼロ・CDN なし」／REQUIREMENTS §4「外部リクエストゼロ」）の目的は **描画が外部に依存しないこと**。この目的は維持したまま、計測ビーコンだけを例外として許可する。理由: 初動（`docs/SHODO-2026-09.md`）のスコアを人手でなく機械が毎日記録するため。
+
+- 許可する外部リソース参照は **`gc.zgo.at`（GoatCounter `count.js`）のみ**。`scripts/test.mjs` が許可リスト方式で検査する: (a) `GOATCOUNTER_CODE` 未設定ビルド＝外部参照ゼロ／(b) 設定ビルド＝`gc.zgo.at` 以外ゼロ。ビーコン送信先 `<code>.goatcounter.com/count` は `data-goatcounter` 属性で指定され、リソース読込ではない（テストは属性値の厳密一致で確認する）。
+- 注入は `GOATCOUNTER_CODE` が設定されたビルドのみ・`dist/index.html` の `</head>` 直前・`async`。未設定なら注入しない（既存の「未設定ならスキップ」流儀）。code の形式は英数字とハイフンに限定し、不正なら黙って落とさずビルドを失敗させる。Artifact 版（claude.ai 内表示）には注入しない。値は HTML に出る公開値なので Actions では Variables で渡す（secret ではない）。
+- イベント: 初期化時に 1 回だけ、観測記録（localStorage `kessho:v1`）が無ければ `event/first`、あれば `event/return` を送る（経路名は純関数 `observationEvent`）。count.js は async 読込のため、未ロードなら script の `load` を一度だけ待って送り、ビーコン未注入なら何もしない。非表示タブ（バックグラウンドで開かれた等）では表示されるまで送らない（count.js が pageview を遅らせるのと同じ扱い・重複送信はしない）。どの経路でも例外を外に出さず、描画には一切関与しない。
+- 描画は引き続き外部に依存しない: ビーコンが遮断されても（広告ブロッカー・CSP・オフライン）結晶は同じに描ける。
+- **グローバル名の衝突禁止**: 単一 `<script>` のトップレベル宣言（`const`/`let`/`function`）はページ全体のグローバル環境に入り、`window.parent` 等を隠す。count.js は `location !== parent.location` でフレーム内を除外するため、`parent` という名の宣言があると**何も計測されない**（実物の count.js で再現・修正済み: `parentIdx` に改名）。`scripts/test.mjs` が `parent / top / self / location / document / navigator / screen / localStorage / history …` との衝突を検査する。
+- 外部参照の検査対象は描画コードのみ: 埋め込みデータ（コミット件名＝外部入力）は検査から除外する（件名に URL があっても nightly が止まらない）。埋め込み JSON の `<` は `\u003c` にエスケープし、件名で `</script>` を閉じられないようにする。
+
+## 15. 放送（v1.9・夜報の X 自動投稿）
+
+STRATEGY §2「X に流れるのは放送」の実装。新方式は設計せず移植: 認証・エンドポイントは brypo-landing `functions/api/_publish.ts` の OAuth 1.0a（HMAC-SHA1）→ `POST https://api.twitter.com/2/tweets` を Node 22 標準 API（fetch / WebCrypto）でそのまま写した（`scripts/publish-night.mjs`・依存ゼロ）。
+
+- **本文** = 機械の一文 ＋ 数字（+n粒・+m行・リポ数・種別内訳）＋ 公開 URL。X の 280「重み」（CJK・かな・絵文字=2・URL=23）以内、ハッシュタグなし、人称は観測所（個人名・社名を出さない）。収まらない場合は内訳 → 決め文句の順に落とし、URL は必ず残す。差分 0 の夜も「静かな夜」テンプレで投稿する（STRATEGY §5: 静かな夜も細い糸で正直に描く）。
+- **夜の識別 = JST 06:00 境界の日付**（`nightOf`）。nightly は 23:45 JST 予定だが GitHub の schedule 遅延で 00:00 JST を越える実績がある（03:53 JST 開始）。壁時計の日付を鍵にすると翌夜が「既投稿」で飛ぶため、06:00 までは前日の夜として扱う。本文の日付もこの夜の日付。
+- **差分 = 前回投稿以降**。`data/last-post.json` に投稿した夜（`night`）・含めた最終日付（`upTo`・後退しない）・直近 3 日ぶんの粒キー（`seen`: `{ "repo@hash": 日付 }`）を記録し、`d > upTo` または「窓内で未見」の粒を新規とする。日付だけで比較しないのは、bot コミットが UTC 日付で前日に付き、`upTo` と同日の粒が投稿後に増えるため。`seen` は前回分（窓内）を引き継ぐ（clone 失敗で一時的にリポが欠けても既報の粒を再報しない）。窓の外（`upTo` − 3 日より前）に後から付いた粒と、夜の日付より未来の日付の粒（時計異常）は数えない（許容する取りこぼし）。初回（マーカーなし）は前夜ぶんから。「n 夜ぶん」の表記は前回の放送からの夜数で決める（粒の日付数ではない）。
+- **冪等**: 同じ夜に 2 回走っても `night` が一致すれば送らない（1 日 1 本）。マーカーは本番送信が成功した夜だけ書く（dry-run は書かない）。判定は live `main` の最新マーカーで行い（ジョブの checkout SHA は起動時に固定されるため）、記録は live `main` の先端に載せて push する（失敗時は先端を取り直して 3 回まで再試行・それでも失敗したら warning）。**許容する残余**: X 応答が曖昧な失敗（タイムアウト・5xx）のあと同じ夜に再実行すると 2 本目が出うる（brypo-landing と同じ判断: 二重投稿を避けるため再試行は 503 のみ）。
+- **既定は dry-run**（本文をログに出して送らない）。本番は `main` 上で、`nightly.yml` の `workflow_dispatch` 入力 `live=true`（明示操作・1 本だけ）、または Variables `PUBLISH_ENABLED=true`（brypo-landing と同名のキルスイッチ。schedule 実行を本番化）のときのみ。`PUBLISH_ENABLED` を置いた理由: 仕様の「本番は live=true のときのみ」だけでは毎晩の本番投稿に到達できず、目的「機械が毎晩出す」を満たせないため。未設定＝dry-run の既定は変えない。`PUBLISH_ENABLED` は schedule 用のスイッチで、明示操作の `live=true` は止めない。`verify=true` は署名付き `GET /2/users/me` で鍵だけ確かめる（投稿しない）。投稿失敗はデータ更新・配信を止めない（`continue-on-error`）。
+- v0 はテキストのみ。画像添付は brypo-landing の経路に無い（media upload は別 API・新規実装になる）ため次回。
