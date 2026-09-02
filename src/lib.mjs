@@ -402,6 +402,8 @@ export function inspectMark(m, idx, targets) {
 }
 
 /* ---------- 観測記録（訪問状態機械・純関数） ---------- */
+// 計測ビーコンの経路名（DESIGN.md §14）: 既存の観測記録が無ければ初観測、あれば再訪
+export const observationEvent = (prev) => (prev && prev.last ? "event/return" : "event/first");
 export function updateVisitState(prev, today, eventCount, lineCount) {
   if (!prev || !prev.last) {
     return {

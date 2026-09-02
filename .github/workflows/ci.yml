@@ -1,0 +1,31 @@
+# PR の検証ゲート: test → build → 夜報の dry-run（送信しない）。
+# 配信は deploy.yml（main への push）、夜間更新と放送は nightly.yml。依存ゼロなので npm install は不要。
+name: ci
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: test
+        run: node scripts/test.mjs
+      - name: build
+        run: node scripts/build.mjs
+      - name: night post (dry-run・送信しない)
+        run: node scripts/publish-night.mjs

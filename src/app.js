@@ -13,7 +13,7 @@ const SECTOR = {}; LINE_ORDER.forEach((l, i) => { SECTOR[l] = -Math.PI / 2 + (i 
 const crystal = buildRing(STREAM, 20260729, LINE_ORDER);
 const STATIONS = crystal.stations, RING = crystal.RING, POD = crystal.POD; // 環状線: 駅=リポ（均一）
 const PTS = crystal.pts, N = PTS.length, CR = crystal.clusterR, F = CR * 1.7;
-const parent = crystal.parent; // 同リポの直前コミット（螺旋の並び＝年表）
+const parentIdx = crystal.parent; // 同リポの直前コミット（螺旋の並び＝年表）。※ window.parent を隠す名前にしない: count.js のフレーム判定が誤作動する（DESIGN §14）
 const neighbors = computeNeighbors(PTS, 30);
 /* 駅ごとの陳列サマリ（バッジ・グロー用に前計算） */
 const NIGHT_REPOS = new Map(); // 昨夜更新のあった駅 → 粒数
@@ -21,7 +21,7 @@ for (const e of STREAM) if (e.d === STREAM[STREAM.length - 1].d) NIGHT_REPOS.set
 const WEEK_REPOS = new Set(STREAM.filter((e) => (toMs(STREAM[STREAM.length - 1].d) - toMs(e.d)) / DAY_MS < 7).map((e) => e.r));
 // 共鳴用: 親子隣接（結晶脈のツリー）
 const children = Array.from({ length: N }, () => []);
-for (let i = 1; i < N; i++) children[parent[i]].push(i);
+for (let i = 1; i < N; i++) children[parentIdx[i]].push(i);
 const phase = new Array(N);
 { const rnd = mulberry32(7); for (let i = 0; i < N; i++) phase[i] = rnd() * Math.PI * 2; }
 /* ライン錨点（弧の中央角）: 星雲・ライン名・line 飛行に使う */
@@ -168,12 +168,38 @@ function todayLocal() {
 }
 let visit = { first: todayLocal(), last: todayLocal(), visits: 1, streak: 1 };
 let catchup = null;
+let obsEvent = observationEvent(null); // 計測ビーコンの経路（記録が読めなければ初観測扱い）
 try {
   const prev = JSON.parse(localStorage.getItem(STORE) || "null");
+  obsEvent = observationEvent(prev);
   const r = updateVisitState(prev, todayLocal(), STREAM.length, totalLines);
   visit = r.state; catchup = r.catchup;
   localStorage.setItem(STORE, JSON.stringify(visit));
 } catch (e) { /* private mode 等では記録なしで動く */ }
+
+/* ===== 計測ビーコン（GoatCounter・DESIGN.md §14「計測の例外」） =====
+ * 初期化時に 1 回だけ event/first または event/return を送る。描画には一切関与しない:
+ * ビーコン未注入（GOATCOUNTER_CODE 未設定）なら何もしない。count.js は async 読込のため、
+ * まだ無ければ script の load を一度だけ待つ。どの経路でも例外は外に出さない。 */
+(function sendObservationEvent(path) {
+  let sent = false;
+  const fire = () => {
+    if (sent) return;
+    try {
+      const gc = window.goatcounter;
+      if (!gc || typeof gc.count !== "function") return;
+      sent = true;
+      gc.count({ path, event: true });
+    } catch (err) { /* 計測失敗は無視 */ }
+  };
+  try {
+    fire();
+    if (!sent) {
+      const s = document.querySelector("script[data-goatcounter]");
+      if (s) s.addEventListener("load", fire, { once: true });
+    }
+  } catch (err) { /* 計測失敗は無視 */ }
+})(obsEvent);
 
 /* ===== 検分ミッション（昨夜の粒を全部タップする） ===== */
 const MSTORE = "kessho:mission", DSTORE = "kessho:inspectdays";
@@ -196,7 +222,7 @@ function resonate(idx, now) {
     hop++;
     const next = [];
     for (const i of frontier) {
-      for (const j of [parent[i], ...children[i]]) {
+      for (const j of [parentIdx[i], ...children[i]]) {
         if (j === 0 || seen.has(j) || j >= visible) continue;
         seen.add(j);
         next.push(j);
@@ -453,7 +479,7 @@ function frame(now) {
   for (const i of order) {
     if (i === 0 || i >= visible) continue;
     const pp = P[i];
-    const isChain = parent[i] !== 0;
+    const isChain = parentIdx[i] !== 0;
     const rgb = rgbOf(PTS[i].e);
     const fa = (isChain ? 0.34 : 0.06) * (matchFocus(PTS[i].e) ? 1 : 0.15);
     let va = fa * fogOf(pp.d, CR);
@@ -462,7 +488,7 @@ function frame(now) {
     ctx.strokeStyle = "rgba(" + rgb.join(",") + "," + (va * 0.5).toFixed(3) + ")";
     ctx.lineWidth = Math.max(0.5, Math.min(0.5 * s * pp.k, 2));
     ctx.beginPath();
-    ctx.moveTo(P[parent[i]].x * s, P[parent[i]].y * s);
+    ctx.moveTo(P[parentIdx[i]].x * s, P[parentIdx[i]].y * s);
     ctx.lineTo(pp.x * s, pp.y * s);
     ctx.stroke();
   }
@@ -873,12 +899,12 @@ function staticRender() {
     if (i === 0 || i >= visible) continue;
     const pp = P[i];
     const rgb = rgbOf(PTS[i].e);
-    const isChain = parent[i] !== 0;
+    const isChain = parentIdx[i] !== 0;
     const fa = (isChain ? 0.34 : 0.06) * (matchFocus(PTS[i].e) ? 1 : 0.15) * 0.5;
     ctx.strokeStyle = "rgba(" + rgb.join(",") + "," + (fa * fogOf(pp.d, CR)).toFixed(3) + ")";
     ctx.lineWidth = Math.max(0.5, Math.min(0.5 * sv * pp.k, 2));
     ctx.beginPath();
-    ctx.moveTo(P[parent[i]].x * sv, P[parent[i]].y * sv);
+    ctx.moveTo(P[parentIdx[i]].x * sv, P[parentIdx[i]].y * sv);
     ctx.lineTo(pp.x * sv, pp.y * sv);
     ctx.stroke();
   }
