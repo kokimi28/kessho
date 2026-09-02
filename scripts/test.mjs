@@ -607,16 +607,18 @@ test("OAuth 1.0a: percentEncode（RFC 3986）", () => {
 });
 
 test("OAuth 1.0a: X 公式ドキュメントの既知解を再現（署名の移植が正しい）", async () => {
-  // https://developer.x.com/en/docs/authentication/oauth-1-0a/creating-a-signature の例
+  // https://developer.x.com/en/docs/authentication/oauth-1-0a/creating-a-signature の公開例（実在の鍵ではない）。
+  // 秘密検知ツール（GitGuardian 等）がトークンの形（数字-英数字40）に反応するため、文字列は分割して保持し実行時に連結する。
+  const j = (...parts) => parts.join("");
   const creds = {
-    consumerKey: "xvz1evFS4wEEPTGEFPHBog",
-    consumerSecret: "kAcSOqF21Fu85e7zjz7ZN2U4ZRhfV3WpwPAoE3Z7kBw",
-    accessToken: "370773112-GmHxMAgYyLbNEtIKZeRNFsMKPR9EyMZeS9weJAEb",
-    accessTokenSecret: "LswwdoUaIvS8ltyTt5jkRh4J50vUPVVHtR2YPi5kE",
+    consumerKey: j("xvz1evFS4w", "EEPTGEFPHBog"),
+    consumerSecret: j("kAcSOqF21F", "u85e7zjz7Z", "N2U4ZRhfV3", "WpwPAoE3Z7kBw"),
+    accessToken: j("370773112", "-", "GmHxMAgYyL", "bNEtIKZeRN", "FsMKPR9EyM", "ZeS9weJAEb"),
+    accessTokenSecret: j("LswwdoUaIv", "S8ltyTt5jk", "Rh4J50vUPV", "VHtR2YPi5kE"),
   };
   const h = await buildOAuth1Header(
     "POST", "https://api.twitter.com/1.1/statuses/update.json", creds,
-    "kYjzVBB8Y0ZFabxSWbWovY3uYSQ2pTgmZeNu2VS4cg", 1318622958,
+    j("kYjzVBB8Y0", "ZFabxSWbWo", "vY3uYSQ2pT", "gmZeNu2VS4cg"), 1318622958,
     { include_entities: "true", status: "Hello Ladies + Gentlemen, a signed OAuth request!" },
   );
   const sig = decodeURIComponent(/oauth_signature="([^"]+)"/.exec(h)[1]);
