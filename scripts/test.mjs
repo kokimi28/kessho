@@ -14,7 +14,7 @@ import {
 } from "../src/lib.mjs";
 import { render, goatcounterSnippet, GOATCOUNTER_CODE_RE } from "./build.mjs";
 import {
-  weightedLength, trimToWeight, percentEncode, buildOAuth1Header, composeNightPost, planNightPost, freshEvents, seenEntries,
+  weightedLength, trimToWeight, percentEncode, buildOAuth1Header, composeNightPost, planNightPost, freshEvents, seenEntries, resolveMode,
   jstDate, nightOf, daysBetween, shiftDay, eventKey, postTweet, postTweetWithRetry, verifyXCredentials, readCreds, credsComplete,
   SITE_URL, TWEET_WEIGHTED_MAX, SEEN_WINDOW_DAYS, NIGHT_BOUNDARY_H, URL_WEIGHT, X_TWEETS_URL, X_ME_URL,
 } from "./publish-night.mjs";
@@ -399,6 +399,46 @@ test("ビルド(c) GOATCOUNTER_CODE の形式: 英数字とハイフンのみ・
   assert.ok(!GOATCOUNTER_CODE_RE.test('x".goatcounter.com/evil?"'));
   assert.ok(!GOATCOUNTER_CODE_RE.test("-lead"));
   assert.throws(() => render({ goatcounterCode: 'a"><script>' }), /形式が不正/);
+});
+
+test("設定ファイル kessho.config.json: goatcounter_code から注入・環境変数が優先・空なら注入なし・公開値のみ", () => {
+  const viaCfg = render({ config: { goatcounter_code: "kessho" } });
+  assert.ok(viaCfg.full.includes(goatcounterSnippet("kessho")), "設定ファイルの code で注入");
+  const envWins = render({ goatcounterCode: "from-env", config: { goatcounter_code: "kessho" } });
+  assert.ok(envWins.full.includes(goatcounterSnippet("from-env")), "環境変数が優先");
+  assert.ok(!envWins.full.includes("kessho.goatcounter.com"));
+  assert.ok(!hasBeacon(render({ config: {} }).full), "両方空なら注入なし");
+  assert.ok(!hasBeacon(render({ goatcounterCode: "", config: { goatcounter_code: "" } }).full));
+  assert.throws(() => render({ config: { goatcounter_code: "bad code" } }), /形式が不正/);
+  const cfg = JSON.parse(readFileSync(join(root, "kessho.config.json"), "utf8"));
+  assert.equal(typeof cfg.goatcounter_code, "string");
+  assert.equal(typeof cfg.publish.schedule_live, "boolean");
+  if (cfg.goatcounter_code) assert.ok(GOATCOUNTER_CODE_RE.test(cfg.goatcounter_code));
+  // 公開値だけ: 値は短い識別子か真偽値のみ（長い文字列＝鍵らしきものを置かない）
+  const walk = (v) => (v && typeof v === "object") ? Object.values(v).every(walk) : (typeof v !== "string" || v.length <= 64 || v.startsWith("公開値"));
+  assert.ok(walk(cfg), "設定ファイルに長い文字列を置かない");
+});
+
+test("dry/live の決定 resolveMode: 優先順（明示 > main 以外 > live 入力 > Variables > 設定ファイル > 既定）", () => {
+  const dry = (o) => resolveMode(o).dry;
+  assert.equal(dry({}), true, "何も無ければ dry-run");
+  assert.equal(dry({ dryRunEnv: "false" }), false, "明示の上書き");
+  assert.equal(dry({ dryRunEnv: "true", event: "schedule", ref: "refs/heads/main", enabledVar: "true" }), true);
+  assert.equal(dry({ dryRunEnv: "maybe", event: "schedule", ref: "refs/heads/main", enabledVar: "true" }), false, "不正値は無視して次へ");
+  assert.equal(dry({ event: "workflow_dispatch", ref: "refs/heads/feature", liveInput: "true" }), true, "main 以外では送らない");
+  assert.equal(dry({ event: "workflow_dispatch", ref: "refs/heads/main", liveInput: "true", enabledVar: "false" }), false, "live=true は Variables で止めない");
+  assert.equal(dry({ event: "workflow_dispatch", ref: "refs/heads/main", liveInput: "false" }), true);
+  assert.equal(dry({ event: "schedule", ref: "refs/heads/main", enabledVar: "true", scheduleLive: false }), false);
+  assert.equal(dry({ event: "schedule", ref: "refs/heads/main", enabledVar: "false", scheduleLive: true }), true, "Variables=false は設定ファイルより強い（キルスイッチ）");
+  assert.equal(dry({ event: "schedule", ref: "refs/heads/main", enabledVar: "", scheduleLive: true }), false, "Variables 未設定なら設定ファイル");
+  assert.equal(dry({ event: "schedule", ref: "refs/heads/main", scheduleLive: true }), false);
+  assert.equal(dry({ event: "schedule", ref: "refs/heads/main", scheduleLive: false }), true);
+  assert.equal(dry({ event: "schedule", ref: "refs/heads/main", scheduleLive: "true" }), true, "boolean の true 以外は本番化しない");
+  assert.equal(dry({ event: "push", ref: "refs/heads/main", scheduleLive: true }), true, "schedule 以外の自動実行は送らない");
+  assert.equal(dry({ liveInput: "true" }), true, "Actions 外の live 入力は無効");
+  for (const o of [{}, { event: "schedule", ref: "refs/heads/main" }, { dryRunEnv: "false" }]) {
+    const m = resolveMode(o); assert.ok(typeof m.reason === "string" && m.reason.length > 0);
+  }
 });
 
 test("ビルド(d) dist/index.html（コミット済み成果物）も許可リストを満たす", () => {

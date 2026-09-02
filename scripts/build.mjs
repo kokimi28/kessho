@@ -3,7 +3,8 @@
 //
 // 計測（GoatCounter）: 環境変数 GOATCOUNTER_CODE が設定されているときだけ、index.html の
 // </head> 直前にビーコン script を注入する（DESIGN.md §14「計測の例外」）。未設定なら注入しない。
-// HTML に出る公開値なので Actions では Variables（secret ではない）で渡す。
+// 値の出どころは 2 つ: 環境変数 GOATCOUNTER_CODE（Actions の Variables・優先）→ 無ければ kessho.config.json の goatcounter_code。
+// どちらも公開値（HTML に出る）。secret ではない。設定ファイルにあるのは AI が PR で投入できるようにするため（DESIGN §14）。
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join, resolve } from "node:path";
@@ -12,6 +13,11 @@ const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const read = (p) => readFileSync(join(root, p), "utf8");
 
 export const TITLE = "結晶 — 夜業の観測所";
+export const CONFIG_PATH = join(root, "kessho.config.json");
+/** 公開値だけの設定ファイル。無い／壊れているときは空扱い（ビルドは止めない）。 */
+export function readConfig() {
+  try { return JSON.parse(readFileSync(CONFIG_PATH, "utf8")); } catch { return {}; }
+}
 // GoatCounter のサイトコード（<code>.goatcounter.com）。属性値に入るので文字種を厳格に制限する。
 export const GOATCOUNTER_CODE_RE = /^[a-z0-9][a-z0-9-]{0,62}$/i;
 
@@ -22,10 +28,12 @@ export function goatcounterSnippet(code) {
 
 /**
  * src + data → { full, artifact } の純関数（ファイルは書かない・test.mjs から両方の変種を検査する）。
- * goatcounterCode: 空/未指定なら注入なし。不正な形式は黙ってスキップせず例外（typo で計測が静かに死ぬのを防ぐ）。
+ * goatcounterCode: 環境変数由来の値（優先）。空なら config.goatcounter_code を使う。どちらも空なら注入なし。
+ * 不正な形式は黙ってスキップせず例外（typo で計測が静かに死ぬのを防ぐ）。config を渡すとファイルを読まない（テスト用）。
  */
-export function render({ goatcounterCode = "" } = {}) {
-  const code = String(goatcounterCode ?? "").trim();
+export function render({ goatcounterCode = "", config } = {}) {
+  const cfg = config ?? readConfig();
+  const code = String(goatcounterCode ?? "").trim() || String(cfg?.goatcounter_code ?? "").trim();
   if (code && !GOATCOUNTER_CODE_RE.test(code)) {
     throw new Error("GOATCOUNTER_CODE の形式が不正（英数字とハイフンのみ）: " + JSON.stringify(code));
   }
@@ -81,7 +89,7 @@ function main() {
   writeFileSync(join(root, "dist/artifact.html"), artifact);
   console.log(
     "built: dist/index.html", full.length, "bytes / dist/artifact.html", artifact.length, "bytes",
-    goatcounterCode ? "/ goatcounter: on" : "/ goatcounter: off（GOATCOUNTER_CODE 未設定）",
+    goatcounterCode ? "/ goatcounter: on" : "/ goatcounter: off（GOATCOUNTER_CODE も kessho.config.json の goatcounter_code も空）",
   );
 }
 

@@ -8,8 +8,10 @@
 # build がビーコンを注入する（docs/DESIGN.md §14）。未設定なら注入しない。
 #
 # 放送（X 自動投稿・docs/DESIGN.md §15）: scripts/publish-night.mjs。既定は dry-run（本文をログに出すだけ）。
-# 本番送信は main 上で (a) workflow_dispatch の入力 live=true、または (b) schedule 実行かつ Variables PUBLISH_ENABLED=true
-# （brypo-landing と同名のキルスイッチ。無いと毎晩の本番投稿に到達できないため置いた）のときのみ。
+# 本番送信は main 上で (a) workflow_dispatch の入力 live=true、または (b) schedule 実行かつ
+# 「Variables PUBLISH_ENABLED=true」か「kessho.config.json の publish.schedule_live=true」のときのみ
+# （Variables が true/false なら常にそちらが優先＝オーナーのキルスイッチ。設定ファイルは AI が PR で切り替える側）。
+# 判定は scripts/publish-night.mjs の resolveMode()（純関数・テスト済み）。
 # 必要 secret（brypo-landing と同名）: X_API_KEY / X_API_SECRET / X_ACCESS_TOKEN / X_ACCESS_TOKEN_SECRET。
 # 投稿失敗はデータ更新・配信を止めない。冪等性の記録 data/last-post.json は live main の先端に載せて push する。
 name: nightly
@@ -82,6 +84,7 @@ jobs:
 
       - name: build
         env:
+          # 計測ビーコン: Variables があれば優先、無ければ kessho.config.json の goatcounter_code（docs/DESIGN.md §14）
           GOATCOUNTER_CODE: ${{ vars.GOATCOUNTER_CODE }}
         run: node scripts/build.mjs
 
@@ -105,19 +108,19 @@ jobs:
         id: post
         continue-on-error: true
         env:
-          PUBLISH_DRY_RUN: ${{ (github.ref == 'refs/heads/main' && (inputs.live == true || (github.event_name == 'schedule' && vars.PUBLISH_ENABLED == 'true'))) && 'false' || 'true' }}
+          # dry/live は script の resolveMode() が決める（材料: event / ref / live 入力 / Variables / 設定ファイル）
+          KESSHO_EVENT: ${{ github.event_name }}
+          KESSHO_REF: ${{ github.ref }}
+          KESSHO_LIVE_INPUT: ${{ inputs.live == true && 'true' || 'false' }}
+          PUBLISH_ENABLED: ${{ vars.PUBLISH_ENABLED }}
           PUBLISH_VERIFY: ${{ inputs.verify == true && 'true' || 'false' }}
-          LIVE_REQUESTED: ${{ inputs.live == true && 'true' || 'false' }}
           KESSHO_MARKER_PATH: ${{ runner.temp }}/last-post.json
           X_API_KEY: ${{ secrets.X_API_KEY }}
           X_API_SECRET: ${{ secrets.X_API_SECRET }}
           X_ACCESS_TOKEN: ${{ secrets.X_ACCESS_TOKEN }}
           X_ACCESS_TOKEN_SECRET: ${{ secrets.X_ACCESS_TOKEN_SECRET }}
         run: |
-          echo "mode: dry_run=${PUBLISH_DRY_RUN} verify=${PUBLISH_VERIFY} event=${{ github.event_name }} ref=${{ github.ref }}"
-          if [ "$LIVE_REQUESTED" = "true" ] && [ "${{ github.ref }}" != "refs/heads/main" ]; then
-            echo "live=true は main でのみ有効 → dry-run で実行"
-          fi
+          echo "inputs: event=${KESSHO_EVENT} ref=${KESSHO_REF} live=${KESSHO_LIVE_INPUT} verify=${PUBLISH_VERIFY} PUBLISH_ENABLED=${PUBLISH_ENABLED:-(unset)}"
           git fetch --quiet origin main
           if git cat-file -e origin/main:data/last-post.json 2>/dev/null; then
             git show origin/main:data/last-post.json > "$KESSHO_MARKER_PATH"

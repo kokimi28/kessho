@@ -13,7 +13,8 @@
 
 - 成果物は `dist/index.html`（自己完結）。決定論規約（seed 20260729・`ring-v1`）を壊さない — 形が変わる変更は `data/shape-checksum.json` の回帰テストで検出される。
 - secrets の値はコード・コミット・Issue・PR・ログに書かない。扱うのはキー名のみ — Secrets: `KESSHO_READ_TOKEN` / `X_API_KEY` / `X_API_SECRET` / `X_ACCESS_TOKEN` / `X_ACCESS_TOKEN_SECRET`、Variables（公開値）: `GOATCOUNTER_CODE` / `PUBLISH_ENABLED`（一覧と用途は `README.md`）。
-- 外部参照は許可リスト方式（`gc.zgo.at` のみ・DESIGN §14）。計測以外の外部依存を足さない。放送（X 投稿）は既定 dry-run で、本番化の切替は 👤 のみ（DESIGN §15）。
+- 外部参照は許可リスト方式（`gc.zgo.at` のみ・DESIGN §14）。計測以外の外部依存を足さない。放送（X 投稿）は既定 dry-run（DESIGN §15）。
+- 公開値の設定は `kessho.config.json`（`goatcounter_code` / `publish.schedule_live`）。secret は置かない。Variables（`GOATCOUNTER_CODE` / `PUBLISH_ENABLED`）があれば設定ファイルより優先＝オーナーの上書き・キルスイッチ。
 
 ## リモート/クラウドセッション運用（claude.ai/code・スマホ発）
 

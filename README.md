@@ -37,7 +37,7 @@ Node >= 22 のみ（依存パッケージゼロ）。
 
 ## 計測（GoatCounter・DESIGN §14）
 
-- Variables **`GOATCOUNTER_CODE`** = GoatCounter のサイトコード（`https://<code>.goatcounter.com` の `<code>`）。HTML に出る公開値なので secret ではなく **Variables** に入れる。設定されたビルドだけ `dist/index.html` にビーコンを注入し、未設定なら注入しない（描画は外部に依存しない）。
+- サイトコード（`https://<code>.goatcounter.com` の `<code>`・HTML に出る公開値）の置き場所は 2 つ: **`kessho.config.json` の `goatcounter_code`**（通常はこちら・AI が PR で投入できる）と Variables **`GOATCOUNTER_CODE`**（あればこちらが優先）。どちらかが設定されたビルドだけ `dist/index.html` にビーコンを注入し、両方空なら注入しない（描画は外部に依存しない）。
 - 送るイベント: 初期化時に 1 回、観測記録が無ければ `event/first`、あれば `event/return`（ダッシュボードでは path `event/first` / `event/return` のヒット数）。
 - X からの流入は GoatCounter の **Refs（参照元）に `t.co`** として出る（X はリンクを t.co で短縮するため）。SHODO の「`t.co` 経由訪問／週」はその行の数字。
 - ダッシュボード: `https://<GOATCOUNTER_CODE>.goatcounter.com/`
@@ -45,9 +45,10 @@ Node >= 22 のみ（依存パッケージゼロ）。
 ## 放送（X 自動投稿・DESIGN §15）
 
 - `scripts/publish-night.mjs`。brypo-landing の publish 経路（OAuth 1.0a → `POST /2/tweets`）の移植で、本文は「機械の一文 ＋ 数字（+n粒・+m行・リポ数）＋ 公開 URL」。静かな夜（差分 0）も投稿する。テキストのみ（画像は次回）。
-- **既定は dry-run**（本文を Actions のログに出すだけ）。本番送信は次のどちらかのときのみ:
-  - `nightly` を **workflow_dispatch** で `live=true` にして実行（1 本だけ出す・初回確認用）
-  - Variables **`PUBLISH_ENABLED`** = `true`（schedule 実行を毎晩本番化。brypo-landing と同名のキルスイッチ。外せば dry-run に戻る。これが無いと毎晩の本番投稿に到達できないため置いた。`live=true` の明示操作は止めない）
+- **既定は dry-run**（本文を Actions のログに出すだけ）。本番送信は `main` 上で次のどれかのときのみ（判定は `scripts/publish-night.mjs` の `resolveMode()`）:
+  - `nightly` を **workflow_dispatch** で `live=true` にして実行（1 本だけ出す・初回確認用。Variables では止めない）
+  - schedule 実行で **`kessho.config.json` の `publish.schedule_live` が `true`**（毎晩本番化・AI が PR で切り替える側）
+  - schedule 実行で Variables **`PUBLISH_ENABLED`** = `true`。Variables が `true`/`false` のときは常に設定ファイルより優先（＝オーナーのキルスイッチ。`false` を入れれば設定ファイルが `true` でも止まる）
 - 冪等: 投稿した夜を `data/last-post.json` に記録（本番成功時のみ・live main の先端に push）。同じ夜に 2 回走っても 2 本目は出ない。「夜」は JST 06:00 境界の日付（schedule が遅れて日付をまたいでも同じ夜）。
 - `verify=true` で dispatch すると、投稿せずに鍵を確かめる（署名付き `GET /2/users/me`。どの @ で出るか・読み取り専用トークンの誤りを検出）。
 
@@ -60,15 +61,14 @@ Node >= 22 のみ（依存パッケージゼロ）。
 | `KESSHO_READ_TOKEN` | Secret | 夜間データ採取（13 リポ read の PAT） |
 | `X_API_KEY` / `X_API_SECRET` | Secret | X アプリの consumer key / secret（brypo-landing と同名） |
 | `X_ACCESS_TOKEN` / `X_ACCESS_TOKEN_SECRET` | Secret | 投稿アカウントのユーザートークン（Read and Write で発行・brypo-landing と同名） |
-| `GOATCOUNTER_CODE` | Variable | 計測ビーコン（HTML に出る公開値） |
-| `PUBLISH_ENABLED` | Variable | `true` のときだけ schedule の放送を本番送信 |
+| `GOATCOUNTER_CODE` | Variable（任意） | 計測ビーコンのサイトコード。設定ファイルより優先（通常は `kessho.config.json` を使う） |
+| `PUBLISH_ENABLED` | Variable（任意） | schedule の放送を `true`＝本番／`false`＝停止。設定ファイルより優先（オーナーのキルスイッチ） |
+| `kessho.config.json` | リポ内ファイル（公開値のみ） | `goatcounter_code` と `publish.schedule_live`。PR で変更する＝AI が投入できる |
 
-## 👤 に残る作業（初動・これ以外を増やさない）
+## 👤 に残る作業（本人のログインが要るものだけ・それ以外は AI が行う）
 
-1. GoatCounter でサイトを作る → コードを Variables に `GOATCOUNTER_CODE` として投入（Settings → Secrets and variables → Actions → Variables）。次の deploy/nightly からビーコンが入る。
-2. 投稿先 X アカウントを決める（brypo 既存 or 新規）→ X developer portal でそのアカウントの **Read and Write** アプリとユーザートークンを発行。
-3. Secrets に `X_API_KEY` / `X_API_SECRET` / `X_ACCESS_TOKEN` / `X_ACCESS_TOKEN_SECRET`（brypo-landing と同名）を投入。
-4. Actions → nightly → Run workflow: まず `verify=true` で鍵を確認 → 次に `live=true` で 1 本出し、X に出たことを確認。毎晩本番にするなら Variables に `PUBLISH_ENABLED=true`。
-5. `docs/SHODO-2026-09.md` の計測開始日と判定値を確定（以後 28 日間は変えない）。
+1. **GoatCounter でサイトを作る**（https://www.goatcounter.com/signup ・約 2 分）。サイトコードは **`kessho`**（`kessho.goatcounter.com`）。作成後は AI が存在を検知して `kessho.config.json` に投入し配信する。別のコードにした場合だけ一言知らせる。
+2. **X の鍵 4 つを Secrets に入れる**（Settings → Secrets and variables → Actions → Secrets）: `X_API_KEY` / `X_API_SECRET` / `X_ACCESS_TOKEN` / `X_ACCESS_TOKEN_SECRET`。投稿先アカウントの X developer portal で **Read and Write** のアプリとユーザートークンを発行（brypo-landing と同じ鍵を使うならその 4 値）。値は AI に渡さない。
+3. （任意）GitGuardian のインシデント 36839171 を false positive として解決。
 
-独自ドメイン判断（現状は github.io で運用）は初動の外。
+以降（鍵の検証 `verify=true` → 本番 1 本 `live=true` → 毎晩本番化 `publish.schedule_live=true` → SHODO の日付記入）は AI が Actions の dispatch と PR で行う。独自ドメイン判断（現状は github.io で運用）は初動の外。

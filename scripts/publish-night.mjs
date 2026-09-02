@@ -5,8 +5,10 @@
 //
 // 使い方（既定は dry-run: 本文をログに出して送信しない）:
 //   node scripts/publish-night.mjs                          # dry-run
-//   PUBLISH_DRY_RUN=false node scripts/publish-night.mjs    # 本番送信（nightly.yml: live=true / PUBLISH_ENABLED=true）
+//   PUBLISH_DRY_RUN=false node scripts/publish-night.mjs    # 本番送信（明示の上書き・手元や CI では使わない）
 //   node scripts/publish-night.mjs --verify                 # 鍵の検証のみ（GET /2/users/me・投稿しない）
+// nightly.yml からは KESSHO_EVENT / KESSHO_REF / KESSHO_LIVE_INPUT / PUBLISH_ENABLED（Variables）を受け取り、
+// kessho.config.json の publish.schedule_live と合わせて resolveMode() が dry/live を決める（優先順は関数のコメント参照）。
 // 必要 secret（brypo-landing と同名・値はログに出さない）: X_API_KEY / X_API_SECRET / X_ACCESS_TOKEN / X_ACCESS_TOKEN_SECRET
 // 冪等性: 投稿した夜（JST 06:00 境界の日付）を data/last-post.json に記録し、同じ夜に 2 回走っても 2 本目は出ない（1 日 1 本）。
 // マーカーの置き場所は env KESSHO_MARKER_PATH で差し替え可能（nightly.yml は live main の最新版を一時ファイルで渡す）。
@@ -17,6 +19,33 @@ import { dirname, join, resolve } from "node:path";
 import { jpDate, typeMix, toMs, DAY_MS } from "../src/lib.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
+export const CONFIG_PATH = join(root, "kessho.config.json");
+/** 公開値だけの設定ファイル。無い／壊れているときは空扱い。 */
+export function readConfig() {
+  try { return JSON.parse(readFileSync(CONFIG_PATH, "utf8")); } catch { return {}; }
+}
+
+/* ========== dry-run / live の決定（純関数） ==========
+ * 優先順:
+ *  1. PUBLISH_DRY_RUN が "true"/"false" なら明示の上書き（それ以外の値は無視）
+ *  2. main 以外の ref では常に dry-run（誤爆防止）
+ *  3. workflow_dispatch の live=true → live（明示操作・Variables では止めない）
+ *  4. schedule 実行: Variables PUBLISH_ENABLED が "true" → live／"false" → dry-run（オーナーのキルスイッチ・設定ファイルより強い）
+ *     未設定なら kessho.config.json の publish.schedule_live に従う（AI が PR で切り替えられる側）
+ *  5. それ以外（手元・CI・入力なし）は dry-run */
+export function resolveMode({ dryRunEnv, event, ref, liveInput, enabledVar, scheduleLive } = {}) {
+  if (dryRunEnv === "false") return { dry: false, reason: "PUBLISH_DRY_RUN=false（明示の上書き）" };
+  if (dryRunEnv === "true") return { dry: true, reason: "PUBLISH_DRY_RUN=true（明示の上書き）" };
+  if (ref && ref !== "refs/heads/main") return { dry: true, reason: "main 以外の ref（" + ref + "）では送らない" };
+  if (liveInput === "true") return ref ? { dry: false, reason: "workflow_dispatch live=true" } : { dry: true, reason: "live=true だが ref 不明（Actions 外）" };
+  if (event === "schedule") {
+    if (enabledVar === "true") return { dry: false, reason: "Variables PUBLISH_ENABLED=true" };
+    if (enabledVar === "false") return { dry: true, reason: "Variables PUBLISH_ENABLED=false（キルスイッチ）" };
+    if (scheduleLive === true) return { dry: false, reason: "kessho.config.json publish.schedule_live=true" };
+    return { dry: true, reason: "schedule だが本番化されていない（既定 dry-run）" };
+  }
+  return { dry: true, reason: "既定 dry-run" };
+}
 export const SITE_URL = "https://kokimi28.github.io/kessho/";
 export const STREAM_PATH = join(root, "data/stream.json");
 export const MARKER_PATH = process.env.KESSHO_MARKER_PATH || join(root, "data/last-post.json");
@@ -302,7 +331,16 @@ export async function verifyXCredentials(creds, { fetchImpl = fetch, now = Date.
 /* ========== main ========== */
 async function main() {
   const args = new Set(process.argv.slice(2));
-  const dry = process.env.PUBLISH_DRY_RUN !== "false"; // 既定は dry-run
+  const mode = resolveMode({
+    dryRunEnv: process.env.PUBLISH_DRY_RUN,
+    event: process.env.KESSHO_EVENT,
+    ref: process.env.KESSHO_REF,
+    liveInput: process.env.KESSHO_LIVE_INPUT,
+    enabledVar: process.env.PUBLISH_ENABLED,
+    scheduleLive: readConfig()?.publish?.schedule_live === true,
+  });
+  const dry = mode.dry; // 既定は dry-run
+  console.log(`[publish-night] mode=${dry ? "dry-run" : "LIVE"}（${mode.reason}）`);
   const creds = readCreds(process.env);
 
   if (args.has("--verify")) {
@@ -325,7 +363,7 @@ async function main() {
   console.log("----- 本文 -----\n" + plan.text + "\n----------------");
 
   if (dry) {
-    console.log("[publish-night] dry-run: 送信しない（PUBLISH_DRY_RUN=false で本番）" + (plan.skip ? "／本番なら既投稿のためスキップ" : ""));
+    console.log("[publish-night] dry-run: 送信しない" + (plan.skip ? "／本番なら既投稿のためスキップ" : ""));
     return;
   }
   if (plan.skip) {
