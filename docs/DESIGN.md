@@ -145,7 +145,7 @@ kessho/
 
 - 許可する外部リソース参照は **`gc.zgo.at`（GoatCounter `count.js`）のみ**。`scripts/test.mjs` が許可リスト方式で検査する: (a) `GOATCOUNTER_CODE` 未設定ビルド＝外部参照ゼロ／(b) 設定ビルド＝`gc.zgo.at` 以外ゼロ。ビーコン送信先 `<code>.goatcounter.com/count` は `data-goatcounter` 属性で指定され、リソース読込ではない（テストは属性値の厳密一致で確認する）。
 - 注入は `GOATCOUNTER_CODE` が設定されたビルドのみ・`dist/index.html` の `</head>` 直前・`async`。未設定なら注入しない（既存の「未設定ならスキップ」流儀）。code の形式は英数字とハイフンに限定し、不正なら黙って落とさずビルドを失敗させる。Artifact 版（claude.ai 内表示）には注入しない。値は HTML に出る公開値なので Actions では Variables で渡す（secret ではない）。
-- イベント: 初期化時に 1 回だけ、観測記録（localStorage `kessho:v1`）が無ければ `event/first`、あれば `event/return` を送る（経路名は純関数 `observationEvent`）。count.js は async 読込のため、未ロードなら script の `load` を一度だけ待って送り、ビーコン未注入なら何もしない。どの経路でも例外を外に出さず、描画には一切関与しない。
+- イベント: 初期化時に 1 回だけ、観測記録（localStorage `kessho:v1`）が無ければ `event/first`、あれば `event/return` を送る（経路名は純関数 `observationEvent`）。count.js は async 読込のため、未ロードなら script の `load` を一度だけ待って送り、ビーコン未注入なら何もしない。非表示タブ（バックグラウンドで開かれた等）では表示されるまで送らない（count.js が pageview を遅らせるのと同じ扱い・重複送信はしない）。どの経路でも例外を外に出さず、描画には一切関与しない。
 - 描画は引き続き外部に依存しない: ビーコンが遮断されても（広告ブロッカー・CSP・オフライン）結晶は同じに描ける。
 - **グローバル名の衝突禁止**: 単一 `<script>` のトップレベル宣言（`const`/`let`/`function`）はページ全体のグローバル環境に入り、`window.parent` 等を隠す。count.js は `location !== parent.location` でフレーム内を除外するため、`parent` という名の宣言があると**何も計測されない**（実物の count.js で再現・修正済み: `parentIdx` に改名）。`scripts/test.mjs` が `parent / top / self / location / document / navigator / screen / localStorage / history …` との衝突を検査する。
 - 外部参照の検査対象は描画コードのみ: 埋め込みデータ（コミット件名＝外部入力）は検査から除外する（件名に URL があっても nightly が止まらない）。埋め込み JSON の `<` は `\u003c` にエスケープし、件名で `</script>` を閉じられないようにする。

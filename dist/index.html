@@ -911,6 +911,15 @@ try {
     try {
       const gc = window.goatcounter;
       if (!gc || typeof gc.count !== "function") return;
+      // 非表示タブ（バックグラウンドで開かれた等）では表示されるまで待つ — count.js が pageview を遅らせるのと同じ扱い
+      if (document.visibilityState === "hidden") {
+        document.addEventListener("visibilitychange", function onVisible() {
+          if (document.visibilityState !== "visible") return;
+          document.removeEventListener("visibilitychange", onVisible);
+          fire();
+        });
+        return;
+      }
       sent = true;
       gc.count({ path, event: true });
     } catch (err) { /* 計測失敗は無視 */ }
