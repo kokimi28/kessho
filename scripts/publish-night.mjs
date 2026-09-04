@@ -67,7 +67,12 @@ export const jstDate = (ms) => new Date(ms + 9 * 3600 * 1000).toISOString().slic
 export const nightOf = (ms) => jstDate(ms - NIGHT_BOUNDARY_H * 3600 * 1000);
 export const daysBetween = (a, b) => Math.round((toMs(b) - toMs(a)) / DAY_MS);
 export const shiftDay = (d, n) => new Date(toMs(d) + n * DAY_MS).toISOString().slice(0, 10);
-export const eventKey = (e) => e.r + "@" + e.h;
+// 粒キーのハッシュ長は 7 に固定する。stream.json の h は git の %h（core.abbrev=auto）で、
+// リポのオブジェクト数が閾値を越えると 7 → 8 桁に伸びる。生の h を鍵にすると、伸びた夜に
+// seen の全キーが一致しなくなり、放送済みの 3 日ぶんを「新規」として再放送してしまう。
+// 7 は auto の下限なので、どちらの長さでも同じ鍵に落ちる。
+export const HASH_KEY_LEN = 7;
+export const eventKey = (e) => e.r + "@" + String(e.h ?? "").slice(0, HASH_KEY_LEN);
 const fmt = (n) => n.toLocaleString("en-US");
 
 /* ========== 差分の決定（純関数） ========== */
