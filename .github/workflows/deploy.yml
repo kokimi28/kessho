@@ -11,9 +11,13 @@ on:
 permissions:
   contents: write
 
+# nightly と同じ group を共有して gh-pages への配信を直列化する。
+# cancel-in-progress は false 固定: group は repo 全体で共有されるため true にすると、
+# main への push が実行中の nightly を放送の途中で kill しうる（その夜の投稿が消える／
+# 投稿済みなのに data/last-post.json を push できず翌夜が二重集計になる）。直列化だけで足りる。
 concurrency:
   group: pages
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   deploy:
@@ -36,7 +40,10 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git fetch origin gh-pages
-          git checkout gh-pages
+          # -f 必須: GOATCOUNTER_CODE が設定されたビルドは追跡ファイル dist/index.html を書き換えるが、
+          # gh-pages に dist/ は無いため、通常の checkout は "local changes would be overwritten" で
+          # 中断し配信が丸ごと落ちる。配信物は直前に $RUNNER_TEMP へ退避済みなので破棄してよい。
+          git checkout -f gh-pages
           cp "$RUNNER_TEMP/index.html" index.html
           touch .nojekyll
           git add index.html .nojekyll
