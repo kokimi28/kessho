@@ -471,6 +471,26 @@ test("JST の夜（06:00 境界）・日付シフト・粒キー", () => {
   assert.equal(eventKey({ r: "brypo", h: "abc1234" }), "brypo@abc1234");
 });
 
+test("粒キー: %h が 7 → 8 桁に伸びても同じ鍵（放送済みを再放送しない）", () => {
+  // stream.json の h は git の %h。core.abbrev=auto はリポのオブジェクト数が閾値を越えると
+  // 7 → 8 桁に伸ばす。生の h を鍵にすると伸びた夜に seen が総崩れし、直近 3 日ぶんが
+  // 「新規」に化けて +n 粒が実際の何倍にもなった本文が公開される。7 は auto の下限。
+  assert.equal(eventKey({ r: "a", h: "abc1234" }), eventKey({ r: "a", h: "abc12345" }));
+  assert.equal(eventKey({ r: "a", h: "abc1234" }), "a@abc1234");
+  assert.notEqual(eventKey({ r: "a", h: "abc1234" }), eventKey({ r: "b", h: "abc1234" }));
+  assert.equal(eventKey({ r: "a", h: undefined }), "a@", "h 欠落でも例外にしない");
+
+  // 実シナリオ: 前夜は 7 桁で放送 → 翌夜に同じコミットが 8 桁で再抽出される
+  const n1 = [
+    { d: "2026-09-01", r: "a", t: "feat", n: 5, h: "1111111" },
+    { d: "2026-09-02", r: "a", t: "feat", n: 7, h: "2222222" },
+  ];
+  const p1 = planNightPost(n1, null, "2026-09-02");
+  assert.equal(p1.count, 2);
+  const n2 = n1.map((e) => ({ ...e, h: e.h + "f" }));
+  assert.equal(planNightPost(n2, p1.nextMarker, "2026-09-03").count, 0, "abbrev が伸びただけで再放送してはいけない");
+});
+
 test("重み付き文字数（X 仕様: CJK/絵文字=2・URL=23）と切り詰め", () => {
   assert.equal(weightedLength("hello world"), 11);
   assert.equal(weightedLength("あいう"), 6);
