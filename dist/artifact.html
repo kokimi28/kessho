@@ -912,7 +912,9 @@ try {
         return;
       }
       sent = true;
-      gc.count({ path, event: true });
+      // referrer: "" — 観測イベントに参照元を載せない（count.js の urlencode は空文字を送らない）。載せると GoatCounter は
+      // イベントにも同じ参照元を付けて session × path ごとに数えるため、Refs の t.co が pageview と合算され 1 人 2 visits に見える（DESIGN §14）
+      gc.count({ path, event: true, referrer: "" });
     } catch (err) { /* 計測失敗は無視 */ }
   };
   try {
