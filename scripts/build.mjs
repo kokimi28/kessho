@@ -5,6 +5,8 @@
 // </head> 直前にビーコン script を注入する（DESIGN.md §14「計測の例外」）。未設定なら注入しない。
 // 値の出どころは 2 つ: 環境変数 GOATCOUNTER_CODE（Actions の Variables・優先）→ 無ければ kessho.config.json の goatcounter_code。
 // どちらも公開値（HTML に出る）。secret ではない。設定ファイルにあるのは AI が PR で投入できるようにするため（DESIGN §14）。
+// canonical（相対 "./"）: count.js は同一ホストの canonical を path に使うため、/kessho/index.html やクエリ付き URL の訪問も
+// ダッシュボードの /kessho 行に統合される。相対参照なので外部参照ではない（許可リスト検査の対象外）。
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join, resolve } from "node:path";
@@ -55,6 +57,7 @@ export function render({ goatcounterCode = "", config } = {}) {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
 <meta name="theme-color" content="#0a0d13">
+<link rel="canonical" href="./">
 <meta name="description" content="AIが毎晩書いたコード差分が、粒子として一つの結晶に堆積していく。夜業の観測所。">
 <title>${TITLE}</title>
 <style>

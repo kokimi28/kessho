@@ -341,8 +341,11 @@ function urlHosts(html) {
   return out;
 }
 const beaconHost = (code) => code + ".goatcounter.com";
-// 検査対象 = 描画コードのみ（埋め込みデータを取り除く）
-const codeOnly = (html, dataJson) => html.split(dataJson).join("");
+// 検査対象 = 描画コードのみ（埋め込みデータを取り除く）。除去は 2 段: 現在の dataJson の厳密一致 ＋ `const STREAM = [...]` 行そのもの。
+// nightly は extract → test → build の順で走るため、test 時点の dist は前夜のデータを抱えており厳密一致では取り除けない
+// （件名に URL が入った夜から毎晩落ちる）。行ごと除くことで DESIGN §14「件名に URL があっても nightly が止まらない」を実装どおりにする。
+const STREAM_LINE_RE = /^const STREAM = \[.*\];$/m;
+const codeOnly = (html, dataJson) => html.split(dataJson).join("").replace(STREAM_LINE_RE, "const STREAM = [];");
 const hasBeacon = (h) => /gc\.zgo\.at|data-goatcounter=|\.goatcounter\.com/.test(h);
 function assertSelfContained(html, label) {
   assert.ok(!html.includes("__DATA__"), label + ": データ未注入");
@@ -351,8 +354,8 @@ function assertSelfContained(html, label) {
   for (const ty of TYPE_ORDER) assert.ok(html.includes(ty));
 }
 
-test("ビルド(a) GOATCOUNTER_CODE 未設定: 外部参照ゼロ・データ埋め込み済み", () => {
-  const r = render({});
+test("ビルド(a) 環境変数も設定ファイルも未設定: 外部参照ゼロ・データ埋め込み済み", () => {
+  const r = render({ config: {} });
   const { full, artifact, dataJson } = r;
   assertSelfContained(full, "index");
   assert.ok(full.includes(dataJson), "dataJson が成果物に埋め込まれている");
@@ -361,8 +364,8 @@ test("ビルド(a) GOATCOUNTER_CODE 未設定: 外部参照ゼロ・データ埋
   assert.deepEqual([...urlHosts(code)], [], "外部ホストが混入");
   assert.ok(!hasBeacon(full), "未設定なのにビーコンが注入された");
   assert.ok(!hasBeacon(artifact), "artifact にビーコン");
-  assert.equal(render({ goatcounterCode: "" }).full, full, "空文字は未設定と同じ");
-  assert.equal(render({ goatcounterCode: undefined }).full, full);
+  assert.equal(render({ goatcounterCode: "", config: {} }).full, full, "空文字は未設定と同じ");
+  assert.equal(render({ goatcounterCode: undefined, config: {} }).full, full);
   // 埋め込みデータは "<" を含まない（件名で </script> を閉じられない）。JSON としては同値
   assert.ok(!dataJson.includes("<"), "埋め込み JSON に生の < が残っている");
   assert.deepEqual(JSON.parse(dataJson).length, STREAM.length);
@@ -388,7 +391,7 @@ test("ビルド(b) GOATCOUNTER_CODE 設定: 外部参照は gc.zgo.at のみ・<
   assert.ok(full.includes(snippet + "\n</head>"), "</head> 直前に注入");
   assert.ok(!hasBeacon(artifact), "artifact 版には注入しない");
   // 注入は head だけ: body/script 側は未設定ビルドと同一
-  const plain = render({}).full;
+  const plain = render({ config: {} }).full;
   assert.equal(full.slice(full.indexOf("<body>")), plain.slice(plain.indexOf("<body>")), "body は不変（描画に影響なし）");
 });
 
@@ -413,7 +416,17 @@ test("設定ファイル kessho.config.json: goatcounter_code から注入・環
   const cfg = JSON.parse(readFileSync(join(root, "kessho.config.json"), "utf8"));
   assert.equal(typeof cfg.goatcounter_code, "string");
   assert.equal(typeof cfg.publish.schedule_live, "boolean");
+  // 未知のキーは拒否（typo は静かに無視され「計測が始まらない／本番化されない」になるため loud に止める）
+  assert.deepEqual(Object.keys(cfg).filter((k) => !["$comment", "goatcounter_code", "publish"].includes(k)), [], "設定ファイルに未知のキー");
+  assert.deepEqual(Object.keys(cfg.publish).filter((k) => k !== "schedule_live"), [], "publish に未知のキー");
   if (cfg.goatcounter_code) assert.ok(GOATCOUNTER_CODE_RE.test(cfg.goatcounter_code));
+  // 設定ファイルの code が空でなければ、render({})（＝実ファイルを読む本番経路）は注入し、コミット済み dist もビーコン入り
+  // （config だけ変えて dist を再ビルドし忘れる事故を検出。Variables 上書きで code が違う場合も「入っている」ことは同じ）
+  if (cfg.goatcounter_code) {
+    assert.ok(hasBeacon(render({}).full), "設定ファイルの code が本番経路で注入されない");
+    const distPath = join(root, "dist/index.html");
+    if (existsSync(distPath)) assert.ok(hasBeacon(readFileSync(distPath, "utf8")), "kessho.config.json に code があるのに dist/index.html にビーコンが無い（再ビルド忘れ）");
+  }
   // 公開値だけ: 値は短い識別子か真偽値のみ（長い文字列＝鍵らしきものを置かない）
   const walk = (v) => (v && typeof v === "object") ? Object.values(v).every(walk) : (typeof v !== "string" || v.length <= 64 || v.startsWith("公開値"));
   assert.ok(walk(cfg), "設定ファイルに長い文字列を置かない");
@@ -431,6 +444,10 @@ test("dry/live の決定 resolveMode: 優先順（明示 > main 以外 > live �
   assert.equal(dry({ event: "schedule", ref: "refs/heads/main", enabledVar: "true", scheduleLive: false }), false);
   assert.equal(dry({ event: "schedule", ref: "refs/heads/main", enabledVar: "false", scheduleLive: true }), true, "Variables=false は設定ファイルより強い（キルスイッチ）");
   assert.equal(dry({ event: "schedule", ref: "refs/heads/main", enabledVar: "", scheduleLive: true }), false, "Variables 未設定なら設定ファイル");
+  assert.equal(dry({ event: "schedule", ref: "refs/heads/main", enabledVar: "False", scheduleLive: true }), true, "キルスイッチは大文字でも効く");
+  assert.equal(dry({ event: "schedule", ref: "refs/heads/main", enabledVar: " FALSE\n", scheduleLive: true }), true, "前後空白も無視");
+  assert.equal(dry({ event: "schedule", ref: "refs/heads/main", enabledVar: " True ", scheduleLive: false }), false, "true も正規化");
+  assert.equal(dry({ event: "schedule", ref: "refs/heads/main", enabledVar: "off", scheduleLive: true }), false, "true/false 以外は未設定扱い（設定ファイルへ）");
   assert.equal(dry({ event: "schedule", ref: "refs/heads/main", scheduleLive: true }), false);
   assert.equal(dry({ event: "schedule", ref: "refs/heads/main", scheduleLive: false }), true);
   assert.equal(dry({ event: "schedule", ref: "refs/heads/main", scheduleLive: "true" }), true, "boolean の true 以外は本番化しない");
@@ -449,6 +466,28 @@ test("ビルド(d) dist/index.html（コミット済み成果物）も許可リ�
   const html = codeOnly(html0, render({}).dataJson);
   for (const r of resourceRefs(html)) assert.ok(ALLOWED_HOSTS.includes(r.host), "dist に許可外の外部参照: " + r.url);
   for (const h of urlHosts(html)) assert.ok(ALLOWED_HOSTS.includes(h) || h.endsWith(".goatcounter.com"), "dist に想定外の外部ホスト: " + h);
+});
+
+test("外部参照検査は埋め込みデータを位置で除外する（前夜の dist でも件名の URL で落ちない）", () => {
+  // 前夜のデータ（今の dataJson と一致しない）を抱えた dist を模す
+  const stale = '<script>\nconst STREAM = [{"d":"2026-09-01","r":"x","s":"docs: see https://evil.example.com/x"}];\nconsole.log(1)\n</script>';
+  const cleaned = codeOnly(stale, render({ config: {} }).dataJson);
+  assert.ok(!cleaned.includes("evil.example.com"), "前夜の埋め込みデータが検査対象に残った");
+  assert.deepEqual([...urlHosts(cleaned)], []);
+  assert.ok(cleaned.includes("const STREAM = [];"));
+  // 実 dist でも STREAM 行は 1 本だけ（除去が過不足なく効く）
+  const { full, dataJson } = render({ config: {} });
+  assert.equal((full.match(/^const STREAM = /gm) || []).length, 1);
+  assert.ok(!codeOnly(full, "＿一致しない文字列＿").includes(dataJson), "厳密一致に頼らず行で除去できる");
+});
+
+test("ビルド: canonical は相対 './'（同一ホスト＝外部参照ではない・index の head に 1 回・artifact には無い）", () => {
+  const tag = '<link rel="canonical" href="./">';
+  const { full, artifact } = render({ config: {} });
+  assert.equal(full.split(tag).length - 1, 1, "canonical は 1 回");
+  assert.ok(full.indexOf(tag) < full.indexOf("</head>"));
+  assert.ok(!artifact.includes('<link rel="canonical"'), "artifact 版（claude.ai 内表示・head 無し・計測なし）には置かない");
+  assert.deepEqual(resourceRefs(tag), [], "相対参照は外部参照として数えない");
 });
 
 test("外部参照スキャナ自体の感度（すり抜けの回帰）", () => {
@@ -489,7 +528,7 @@ test("計測イベント: 観測記録の有無で first / return（純関数）
   // app.js は初期化時に 1 回だけ送り、goatcounter 未注入なら何もしない（例外なし）
   const app = readFileSync(join(root, "src/app.js"), "utf8");
   assert.ok(app.includes("script[data-goatcounter]"), "count.js の load 待ちが無い");
-  assert.ok(app.includes("gc.count({ path, event: true })"), "イベント送信の形が仕様と違う");
+  assert.ok(app.includes('gc.count({ path, event: true, referrer: "" })'), "イベント送信の形が仕様と違う（参照元は空文字で載せない＝Refs の二重計上を防ぐ）");
 });
 
 /* ===== 放送（X 自動投稿・DESIGN.md §15） ===== */

@@ -110,7 +110,8 @@ jobs:
             fi
             echo "push 失敗（$i/3）: main の先端を取り直して再試行"
             git fetch --quiet origin main
-            git rebase --quiet origin/main || exit 1
+            # 競合したら rebase を中止して作業ツリーを競合前（今夜のビルド）に戻す（競合マーカー入りの dist を配信しない）
+            git rebase --quiet origin/main || { git rebase --abort; exit 1; }
             sleep 5
           done
           echo "::warning::data/stream.json の push に失敗（放送と配信は続行する）"
@@ -175,7 +176,8 @@ jobs:
             fi
             echo "push 失敗（$i/3）: main の先端を取り直して再試行"
             git fetch --quiet origin main
-            git rebase --quiet origin/main || exit 1
+            # 競合したら rebase を中止して作業ツリーを競合前（今夜のビルド）に戻す（競合マーカー入りの dist を配信しない）
+            git rebase --quiet origin/main || { git rebase --abort; exit 1; }
             sleep 5
           done
           echo "::warning::投稿記録（data/last-post.json）の push に失敗。同じ夜に再実行すると 2 本目が出る可能性がある"

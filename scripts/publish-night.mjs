@@ -30,7 +30,8 @@ export function readConfig() {
  *  1. PUBLISH_DRY_RUN が "true"/"false" なら明示の上書き（それ以外の値は無視）
  *  2. main 以外の ref では常に dry-run（誤爆防止）
  *  3. workflow_dispatch の live=true → live（明示操作・Variables では止めない）
- *  4. schedule 実行: Variables PUBLISH_ENABLED が "true" → live／"false" → dry-run（オーナーのキルスイッチ・設定ファイルより強い）
+ *  4. schedule 実行: Variables PUBLISH_ENABLED が "true" → live／"false" → dry-run（オーナーのキルスイッチ・設定ファイルより強い。
+ *     UI で人が入力する値なので前後空白と大文字小文字は無視する＝ "False" でも止まる）
  *     未設定なら kessho.config.json の publish.schedule_live に従う（AI が PR で切り替えられる側）
  *  5. それ以外（手元・CI・入力なし）は dry-run */
 export function resolveMode({ dryRunEnv, event, ref, liveInput, enabledVar, scheduleLive } = {}) {
@@ -39,8 +40,9 @@ export function resolveMode({ dryRunEnv, event, ref, liveInput, enabledVar, sche
   if (ref && ref !== "refs/heads/main") return { dry: true, reason: "main 以外の ref（" + ref + "）では送らない" };
   if (liveInput === "true") return ref ? { dry: false, reason: "workflow_dispatch live=true" } : { dry: true, reason: "live=true だが ref 不明（Actions 外）" };
   if (event === "schedule") {
-    if (enabledVar === "true") return { dry: false, reason: "Variables PUBLISH_ENABLED=true" };
-    if (enabledVar === "false") return { dry: true, reason: "Variables PUBLISH_ENABLED=false（キルスイッチ）" };
+    const ev = String(enabledVar ?? "").trim().toLowerCase();
+    if (ev === "true") return { dry: false, reason: "Variables PUBLISH_ENABLED=true" };
+    if (ev === "false") return { dry: true, reason: "Variables PUBLISH_ENABLED=false（キルスイッチ）" };
     if (scheduleLive === true) return { dry: false, reason: "kessho.config.json publish.schedule_live=true" };
     return { dry: true, reason: "schedule だが本番化されていない（既定 dry-run）" };
   }

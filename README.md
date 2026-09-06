@@ -38,9 +38,10 @@ Node >= 22 のみ（依存パッケージゼロ）。
 ## 計測（GoatCounter・DESIGN §14）
 
 - サイトコード（`https://<code>.goatcounter.com` の `<code>`・HTML に出る公開値）の置き場所は 2 つ: **`kessho.config.json` の `goatcounter_code`**（通常はこちら・AI が PR で投入できる）と Variables **`GOATCOUNTER_CODE`**（あればこちらが優先）。どちらかが設定されたビルドだけ `dist/index.html` にビーコンを注入し、両方空なら注入しない（描画は外部に依存しない）。
-- 送るイベント: 初期化時に 1 回、観測記録が無ければ `event/first`、あれば `event/return`（ダッシュボードでは path `event/first` / `event/return` のヒット数）。
-- X からの流入は GoatCounter の **Refs（参照元）に `t.co`** として出る（X はリンクを t.co で短縮するため）。SHODO の「`t.co` 経由訪問／週」はその行の数字。
-- ダッシュボード: `https://<GOATCOUNTER_CODE>.goatcounter.com/`
+- 送るイベント: 初期化時に 1 回、観測記録が無ければ `event/first`、あれば `event/return`（ダッシュボードでは Pages に「event」ラベル付きの行 `event/first` / `event/return` の visits）。イベントには参照元を載せない（Refs の二重計上を防ぐ）。
+- X からの流入は GoatCounter の **Referrers（参照元）に `t.co`** として出る（X はリンクを t.co で短縮するため）。SHODO の「`t.co` 経由訪問／週」はその行の visits（観測イベント分は含まれない）。
+- head に `<link rel="canonical" href="./">` を置き、`/kessho/index.html` やクエリ付き URL の訪問も Pages の `/kessho` の行（末尾スラッシュ無しで表示される）に統合する（相対参照＝外部参照ではない）。
+- ダッシュボード: `https://kessho.goatcounter.com/`。既定は private（ログイン必須）。Settings → 「Dashboard viewable by」を `secret` か `public` にすると AI が読める（任意）。行名・期間の指定（「Week」ボタンは 8 日ぶん）・visits の定義は SHODO §2 が正。
 
 ## 放送（X 自動投稿・DESIGN §15）
 
@@ -48,9 +49,10 @@ Node >= 22 のみ（依存パッケージゼロ）。
 - **既定は dry-run**（本文を Actions のログに出すだけ）。本番送信は `main` 上で次のどれかのときのみ（判定は `scripts/publish-night.mjs` の `resolveMode()`）:
   - `nightly` を **workflow_dispatch** で `live=true` にして実行（1 本だけ出す・初回確認用。Variables では止めない）
   - schedule 実行で **`kessho.config.json` の `publish.schedule_live` が `true`**（毎晩本番化・AI が PR で切り替える側）
-  - schedule 実行で Variables **`PUBLISH_ENABLED`** = `true`。Variables が `true`/`false` のときは常に設定ファイルより優先（＝オーナーのキルスイッチ。`false` を入れれば設定ファイルが `true` でも止まる）
+  - schedule 実行で Variables **`PUBLISH_ENABLED`** = `true`。Variables が `true`/`false` のときは常に設定ファイルより優先（＝オーナーのキルスイッチ。`false` を入れれば設定ファイルが `true` でも止まる。前後空白と大文字小文字は無視＝`False` でも止まる）
 - 冪等: 投稿した夜を `data/last-post.json` に記録（本番成功時のみ・live main の先端に push）。同じ夜に 2 回走っても 2 本目は出ない。「夜」は JST 06:00 境界の日付（schedule が遅れて日付をまたいでも同じ夜）。
 - `verify=true` で dispatch すると、投稿せずに鍵を確かめる（署名付き `GET /2/users/me`。どの @ で出るか・読み取り専用トークンの誤りを検出）。
+- nightly が `cancelled` で終わった夜（`deploy` と同じ concurrency group で pending 中に main への push が重なると起きる）は、`nightly` を workflow_dispatch（入力なし）で再実行する。同じ夜なら marker で冪等。
 
 ## secrets / variables
 
@@ -67,8 +69,9 @@ Node >= 22 のみ（依存パッケージゼロ）。
 
 ## 👤 に残る作業（本人のログインが要るものだけ・それ以外は AI が行う）
 
-1. **GoatCounter でサイトを作る**（https://www.goatcounter.com/signup ・約 2 分）。サイトコードは **`kessho`**（`kessho.goatcounter.com`）。作成後は AI が存在を検知して `kessho.config.json` に投入し配信する。別のコードにした場合だけ一言知らせる。
+1. **GoatCounter でサイトを作る**（https://www.goatcounter.com/signup ・約 2 分）。サイトコードは **`kessho`**（`kessho.goatcounter.com`）。作成後は AI が存在を検知して `kessho.config.json` に投入し配信する。別のコードにした場合だけ一言知らせる。（済: 2026-09-07 検知・PR #5）
 2. **X の鍵 4 つを Secrets に入れる**（Settings → Secrets and variables → Actions → Secrets）: `X_API_KEY` / `X_API_SECRET` / `X_ACCESS_TOKEN` / `X_ACCESS_TOKEN_SECRET`。投稿先アカウントの X developer portal で **Read and Write** のアプリとユーザートークンを発行（brypo-landing と同じ鍵を使うならその 4 値）。値は AI に渡さない。
 3. （任意）GitGuardian のインシデント 36839171 を false positive として解決。
+4. （任意・推奨）GoatCounter の Settings で **「Dashboard viewable by」を `secret` か `public`** にし、**Timezone が `Asia/Tokyo`** であることを確認する。AI が SHODO §7 の週次記録と §6 の判定を無人で行えるようになる（private のままなら判定日の読み取りは 👤）。
 
 以降（鍵の検証 `verify=true` → 本番 1 本 `live=true` → 毎晩本番化 `publish.schedule_live=true` → SHODO の日付記入）は AI が Actions の dispatch と PR で行う。独自ドメイン判断（現状は github.io で運用）は初動の外。
