@@ -351,8 +351,8 @@ function assertSelfContained(html, label) {
   for (const ty of TYPE_ORDER) assert.ok(html.includes(ty));
 }
 
-test("ビルド(a) GOATCOUNTER_CODE 未設定: 外部参照ゼロ・データ埋め込み済み", () => {
-  const r = render({});
+test("ビルド(a) 環境変数も設定ファイルも未設定: 外部参照ゼロ・データ埋め込み済み", () => {
+  const r = render({ config: {} });
   const { full, artifact, dataJson } = r;
   assertSelfContained(full, "index");
   assert.ok(full.includes(dataJson), "dataJson が成果物に埋め込まれている");
@@ -361,8 +361,8 @@ test("ビルド(a) GOATCOUNTER_CODE 未設定: 外部参照ゼロ・データ埋
   assert.deepEqual([...urlHosts(code)], [], "外部ホストが混入");
   assert.ok(!hasBeacon(full), "未設定なのにビーコンが注入された");
   assert.ok(!hasBeacon(artifact), "artifact にビーコン");
-  assert.equal(render({ goatcounterCode: "" }).full, full, "空文字は未設定と同じ");
-  assert.equal(render({ goatcounterCode: undefined }).full, full);
+  assert.equal(render({ goatcounterCode: "", config: {} }).full, full, "空文字は未設定と同じ");
+  assert.equal(render({ goatcounterCode: undefined, config: {} }).full, full);
   // 埋め込みデータは "<" を含まない（件名で </script> を閉じられない）。JSON としては同値
   assert.ok(!dataJson.includes("<"), "埋め込み JSON に生の < が残っている");
   assert.deepEqual(JSON.parse(dataJson).length, STREAM.length);
@@ -388,7 +388,7 @@ test("ビルド(b) GOATCOUNTER_CODE 設定: 外部参照は gc.zgo.at のみ・<
   assert.ok(full.includes(snippet + "\n</head>"), "</head> 直前に注入");
   assert.ok(!hasBeacon(artifact), "artifact 版には注入しない");
   // 注入は head だけ: body/script 側は未設定ビルドと同一
-  const plain = render({}).full;
+  const plain = render({ config: {} }).full;
   assert.equal(full.slice(full.indexOf("<body>")), plain.slice(plain.indexOf("<body>")), "body は不変（描画に影響なし）");
 });
 
@@ -414,6 +414,13 @@ test("設定ファイル kessho.config.json: goatcounter_code から注入・環
   assert.equal(typeof cfg.goatcounter_code, "string");
   assert.equal(typeof cfg.publish.schedule_live, "boolean");
   if (cfg.goatcounter_code) assert.ok(GOATCOUNTER_CODE_RE.test(cfg.goatcounter_code));
+  // 設定ファイルの code が空でなければ、render({})（＝実ファイルを読む本番経路）は注入し、コミット済み dist もビーコン入り
+  // （config だけ変えて dist を再ビルドし忘れる事故を検出。Variables 上書きで code が違う場合も「入っている」ことは同じ）
+  if (cfg.goatcounter_code) {
+    assert.ok(hasBeacon(render({}).full), "設定ファイルの code が本番経路で注入されない");
+    const distPath = join(root, "dist/index.html");
+    if (existsSync(distPath)) assert.ok(hasBeacon(readFileSync(distPath, "utf8")), "kessho.config.json に code があるのに dist/index.html にビーコンが無い（再ビルド忘れ）");
+  }
   // 公開値だけ: 値は短い識別子か真偽値のみ（長い文字列＝鍵らしきものを置かない）
   const walk = (v) => (v && typeof v === "object") ? Object.values(v).every(walk) : (typeof v !== "string" || v.length <= 64 || v.startsWith("公開値"));
   assert.ok(walk(cfg), "設定ファイルに長い文字列を置かない");
