@@ -1,0 +1,5 @@
+{
+  "$comment": "公開値だけを置く設定（secret は置かない）。goatcounter_code: GoatCounter のサイトコード（空なら計測ビーコンを注入しない・Variables GOATCOUNTER_CODE があればそちらが優先）。publish.schedule_live: true で nightly の schedule 実行が X へ本番送信する（Variables PUBLISH_ENABLED が true/false なら常にそちらが優先＝オーナーのキルスイッチ）。",
+  "goatcounter_code": "",
+  "publish": { "schedule_live": false }
+}
