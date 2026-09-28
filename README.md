@@ -71,7 +71,10 @@ Node >= 22 のみ（依存パッケージゼロ）。
 
 1. **GoatCounter でサイトを作る**（https://www.goatcounter.com/signup ・約 2 分）。サイトコードは **`kessho`**（`kessho.goatcounter.com`）。作成後は AI が存在を検知して `kessho.config.json` に投入し配信する。別のコードにした場合だけ一言知らせる。（済: 2026-09-07 検知・PR #5）
 2. **X の鍵 4 つを Secrets に入れる**（Settings → Secrets and variables → Actions → Secrets）: `X_API_KEY` / `X_API_SECRET` / `X_ACCESS_TOKEN` / `X_ACCESS_TOKEN_SECRET`。投稿先アカウントの X developer portal で **Read and Write** のアプリとユーザートークンを発行（brypo-landing と同じ鍵を使うならその 4 値）。値は AI に渡さない。
+   - X API は 2026-02-06 から従量課金。https://console.x.com の Billing でクレジットを前払いする（残高 0 だと API が使えない）。夜報は URL を含むため 1 本 $0.200（URL なしは $0.015）＝毎晩投稿で月約 $6。
+   - 権限を Read and write に変えた後は Access Token / Secret を**再生成**する（変更前に発行したトークンは読み取り専用のまま）。
+   - （未: 2026-09-28 時点。nightly のログで `X_*` の値が空＝未登録。登録済みの secret は `***` と表示される）
 3. （任意）GitGuardian のインシデント 36839171 を false positive として解決。
 4. （任意・推奨）GoatCounter の Settings で **「Dashboard viewable by」を `secret` か `public`** にし、**Timezone が `Asia/Tokyo`** であることを確認する。AI が SHODO §7 の週次記録と §6 の判定を無人で行えるようになる（private のままなら判定日の読み取りは 👤）。
 
-以降（鍵の検証 `verify=true` → 本番 1 本 `live=true` → 毎晩本番化 `publish.schedule_live=true` → SHODO の日付記入）は AI が Actions の dispatch と PR で行う。独自ドメイン判断（現状は github.io で運用）は初動の外。
+以降の順序: 鍵の検証 `verify=true` →（任意）本番 1 本 `live=true` → 毎晩本番化 `publish.schedule_live=true`。dispatch（`verify` / `live`）は 👤 が Actions の「Run workflow」で行う（AI のクラウドセッションには Actions を起動する手段が無い・CLAUDE.md と同じ）。毎晩本番化の切り替えは AI が PR で用意し、👤 が verify の結果を見てマージする。独自ドメイン判断（現状は github.io で運用）は初動の外。
