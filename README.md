@@ -71,7 +71,7 @@ Node >= 22 のみ（依存パッケージゼロ）。
 
 1. **GoatCounter でサイトを作る**（https://www.goatcounter.com/signup ・約 2 分）。サイトコードは **`kessho`**（`kessho.goatcounter.com`）。作成後は AI が存在を検知して `kessho.config.json` に投入し配信する。別のコードにした場合だけ一言知らせる。（済: 2026-09-07 検知・PR #5）
 2. **X の鍵 4 つを Secrets に入れる**（Settings → Secrets and variables → Actions → Secrets）: `X_API_KEY` / `X_API_SECRET` / `X_ACCESS_TOKEN` / `X_ACCESS_TOKEN_SECRET`。投稿先アカウントの X developer portal で **Read and Write** のアプリとユーザートークンを発行（brypo-landing と同じ鍵を使うならその 4 値）。値は AI に渡さない。
-   - X API は 2026-02-06 から従量課金。https://console.x.com の Billing でクレジットを前払いする（残高 0 だと投稿が 403 になる）。夜報は URL を含むため 1 本 $0.200（URL なしは $0.015）＝毎晩投稿で月約 $6。
+   - X API は 2026-02-06 から従量課金。https://console.x.com の Billing でクレジットを前払いする（残高 0 だと API が使えない）。夜報は URL を含むため 1 本 $0.200（URL なしは $0.015）＝毎晩投稿で月約 $6。
    - 権限を Read and write に変えた後は Access Token / Secret を**再生成**する（変更前に発行したトークンは読み取り専用のまま）。
    - （未: 2026-09-28 時点。nightly のログで `X_*` の値が空＝未登録。登録済みの secret は `***` と表示される）
 3. （任意）GitGuardian のインシデント 36839171 を false positive として解決。
